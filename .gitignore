@@ -1,0 +1,24 @@
+# Makefile #
+############
+/charset/sbcsdat.c
+/windows/MSVC
+/windows/DEVCPP
+Makefile*
+
+# Unix/GCC #
+############
+*.o
+
+# Windows  #
+############
+# Compiler (MSVC) & IDE (VC 6.0) generated files
+*.obj
+*.exe
+*.dll
+*.map
+*.res
+*.pch
+*.sbr
+
+# OS generated files
+Thumbs.db
