@@ -1,3 +1,39 @@
+################################################################################
+#                                                                              #
+#       YumeYao's PuTTY README                                                 #
+#                                                                              #
+################################################################################
+#                                      #
+# A. Functionality Changes             #
+#                                      #
+########################################
+#
+# 1. This .gitignore file serves as README.
+# 2. ADB connection type added.
+# 3. ClearType font rendering is fixed. No more ugly glyphs!
+#
+########################################
+#                                      #
+# B. Other improvements                #
+#                                      #
+########################################
+#
+# 1. MSVCRT linkage. Smaller size and faster starting time.
+#
+########################################
+#                                      #
+# C. Code/Project Layout               #
+#                                      #
+########################################
+#
+# 1. Indent fix. (4 spaces)
+# 2. C-style Class implementation with Inheriting to purge code.
+#    (Don't like redundancy)
+# 3. All C & asm in coding. No CPP. No Windows 'safe string' APIs.
+#    (CPP makes compiler behavior more complicated - harder for optimization)
+#    ('Safe string' APIs are meaningless. Only introduces extra dependency)
+#
+################################################################################
 # Makefile #
 ############
 /charset/sbcsdat.c
@@ -5,18 +41,21 @@
 /windows/DEVCPP
 Makefile*
 
+################################################################################
 # Unix/GCC #
 ############
 *.o
 
+################################################################################
 # Windows  #
 ############
-# Compiler (MSVC) & IDE (VC 6.0) generated files
+# Compiler (MSVC/Makefile) & IDE (VC 6.0) generated files
 *.obj
 *.exe
 *.dll
 *.map
 *.res
+*.rsp
 *.pch
 *.sbr
 
