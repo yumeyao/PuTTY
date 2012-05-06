@@ -6,27 +6,13 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-#include "putty.h"
-
-#ifndef FALSE
-#define FALSE 0
-#endif
-#ifndef TRUE
-#define TRUE 1
-#endif
-
-#define RLOGIN_MAX_BACKLOG 4096
+#include "raw.h"
 
 typedef struct rlogin_tag {
-    const struct plug_function_table *fn;
-    /* the above field _must_ be first in the structure */
-
-    Socket s;
-    int bufsize;
+    struct raw_backend_data;
     int firstbyte;
     int cansize;
     int term_width, term_height;
-    void *frontend;
 
     Config cfg;
 
@@ -34,88 +20,87 @@ typedef struct rlogin_tag {
     prompts_t *prompt;
 } *Rlogin;
 
-static void rlogin_size(void *handle, int width, int height);
+#define RLOGIN_MAX_BACKLOG 4096
 
-static void c_write(Rlogin rlogin, char *buf, int len)
+/* member functions in Backend */
+static const char *
+    rlogin_init(void *, void **, Config *, char *, int, char **, int, int);
+static void rlogin_free(void *);
+#define rlogin_reconfig         raw_reconfig
+static int rlogin_send(void *, char *, int);
+#define rlogin_sendbuffer       raw_sendbuffer
+void rlogin_size(void *, int, int);
+#define rlogin_special          raw_special
+#define rlogin_get_specials     raw_get_specials
+#define rlogin_connected        raw_connected_checks
+/* If we ever implement RSH, we'll probably need to do this properly */
+#define rlogin_exitcode         raw_exitcode
+#define rlogin_sendok           raw_sendok
+#define rlogin_ldisc            ((int (*)(void *, int))raw_stub_false)
+#define rlogin_provide_ldisc    raw_provide_ldisc
+#define rlogin_provide_logctx   raw_provide_logctx
+#if (RLOGIN_MAX_BACKLOG==RAW_MAX_BACKLOG)
+#define rlogin_unthrottle raw_unthrottle
+#else
+static void rlogin_unthrottle(void *handle, int backlog)
+{
+    Rlogin rlogin = (Rlogin) handle;
+    sk_set_frozen(rlogin->s, backlog > RLOGIN_MAX_BACKLOG);
+}
+#endif
+#define rlogin_cfg_info         raw_cfg_info
+
+/* member functions in plug function table */
+#define rlogin_log              raw_log
+#define rlogin_closing          raw_closing
+static int rlogin_receive(Plug, int, char *, int);
+#define rlogin_sent             raw_sent
+
+#if (RLOGIN_MAX_BACKLOG==RAW_MAX_BACKLOG)
+#define c_write_rlogin(rlogin, buf, len) c_write((Raw)rlogin, buf, len)
+#else
+static void c_write_rlogin(Rlogin rlogin, char *buf, int len)
 {
     int backlog = from_backend(rlogin->frontend, 0, buf, len);
     sk_set_frozen(rlogin->s, backlog > RLOGIN_MAX_BACKLOG);
 }
-
-static void rlogin_log(Plug plug, int type, SockAddr addr, int port,
-		       const char *error_msg, int error_code)
-{
-    Rlogin rlogin = (Rlogin) plug;
-    char addrbuf[256], *msg;
-
-    sk_getaddr(addr, addrbuf, lenof(addrbuf));
-
-    if (type == 0)
-	msg = dupprintf("Connecting to %s port %d", addrbuf, port);
-    else
-	msg = dupprintf("Failed to connect to %s: %s", addrbuf, error_msg);
-
-    logevent(rlogin->frontend, msg);
-}
-
-static int rlogin_closing(Plug plug, const char *error_msg, int error_code,
-			  int calling_back)
-{
-    Rlogin rlogin = (Rlogin) plug;
-    if (rlogin->s) {
-        sk_close(rlogin->s);
-        rlogin->s = NULL;
-	notify_remote_exit(rlogin->frontend);
-    }
-    if (error_msg) {
-	/* A socket error has occurred. */
-	logevent(rlogin->frontend, error_msg);
-	connection_fatal(rlogin->frontend, "%s", error_msg);
-    }				       /* Otherwise, the remote side closed the connection normally. */
-    return 0;
-}
+#endif
 
 static int rlogin_receive(Plug plug, int urgent, char *data, int len)
 {
     Rlogin rlogin = (Rlogin) plug;
     if (urgent == 2) {
-	char c;
+        char c;
 
-	c = *data++;
-	len--;
-	if (c == '\x80') {
-	    rlogin->cansize = 1;
-	    rlogin_size(rlogin, rlogin->term_width, rlogin->term_height);
+        c = *data++;
+        len--;
+        if (c == '\x80') {
+            rlogin->cansize = 1;
+            rlogin_size(rlogin, rlogin->term_width, rlogin->term_height);
         }
-	/*
-	 * We should flush everything (aka Telnet SYNCH) if we see
-	 * 0x02, and we should turn off and on _local_ flow control
-	 * on 0x10 and 0x20 respectively. I'm not convinced it's
-	 * worth it...
-	 */
+        /*
+         * We should flush everything (aka Telnet SYNCH) if we see
+         * 0x02, and we should turn off and on _local_ flow control
+         * on 0x10 and 0x20 respectively. I'm not convinced it's
+         * worth it...
+         */
     } else {
-	/*
-	 * Main rlogin protocol. This is really simple: the first
-	 * byte is expected to be NULL and is ignored, and the rest
-	 * is printed.
-	 */
-	if (rlogin->firstbyte) {
-	    if (data[0] == '\0') {
-		data++;
-		len--;
-	    }
-	    rlogin->firstbyte = 0;
-	}
-	if (len > 0)
-            c_write(rlogin, data, len);
+        /*
+         * Main rlogin protocol. This is really simple: the first
+         * byte is expected to be NULL and is ignored, and the rest
+         * is printed.
+         */
+        if (rlogin->firstbyte) {
+            if (data[0] == '\0') {
+                data++;
+                len--;
+            }
+            rlogin->firstbyte = 0;
+        }
+        if (len > 0)
+            c_write_rlogin(rlogin, data, len);
     }
     return 1;
-}
-
-static void rlogin_sent(Plug plug, int bufsize)
-{
-    Rlogin rlogin = (Rlogin) plug;
-    rlogin->bufsize = bufsize;
 }
 
 static void rlogin_startup(Rlogin rlogin, const char *ruser)
@@ -148,15 +133,15 @@ static void rlogin_startup(Rlogin rlogin, const char *ruser)
  * freed by the caller.
  */
 static const char *rlogin_init(void *frontend_handle, void **backend_handle,
-			       Config *cfg,
-			       char *host, int port, char **realhost,
-			       int nodelay, int keepalive)
+                               Config *cfg,
+                               char *host, int port, char **realhost,
+                               int nodelay, int keepalive)
 {
     static const struct plug_function_table fn_table = {
-	rlogin_log,
-	rlogin_closing,
-	rlogin_receive,
-	rlogin_sent
+        rlogin_log,
+        rlogin_closing,
+        rlogin_receive,
+        raw_sent
     };
     SockAddr addr;
     const char *err;
@@ -179,45 +164,45 @@ static const char *rlogin_init(void *frontend_handle, void **backend_handle,
      * Try to find host.
      */
     {
-	char *buf;
-	buf = dupprintf("Looking up host \"%s\"%s", host,
-			(cfg->addressfamily == ADDRTYPE_IPV4 ? " (IPv4)" :
-			 (cfg->addressfamily == ADDRTYPE_IPV6 ? " (IPv6)" :
-			  "")));
-	logevent(rlogin->frontend, buf);
-	sfree(buf);
+        char *buf;
+        buf = dupprintf("Looking up host \"%s\"%s", host,
+                        (cfg->addressfamily == ADDRTYPE_IPV4 ? " (IPv4)" :
+                         (cfg->addressfamily == ADDRTYPE_IPV6 ? " (IPv6)" :
+                          "")));
+        logevent(rlogin->frontend, buf);
+        sfree(buf);
     }
     addr = name_lookup(host, port, realhost, cfg, cfg->addressfamily);
     if ((err = sk_addr_error(addr)) != NULL) {
-	sk_addr_free(addr);
-	return err;
+        sk_addr_free(addr);
+        return err;
     }
 
     if (port < 0)
-	port = 513;		       /* default rlogin port */
+        port = 513;                       /* default rlogin port */
 
     /*
      * Open socket.
      */
     rlogin->s = new_connection(addr, *realhost, port, 1, 0,
-			       nodelay, keepalive, (Plug) rlogin, cfg);
+                               nodelay, keepalive, (Plug) rlogin, cfg);
     if ((err = sk_socket_error(rlogin->s)) != NULL)
-	return err;
+        return err;
 
     if (*cfg->loghost) {
-	char *colon;
+        char *colon;
 
-	sfree(*realhost);
-	*realhost = dupstr(cfg->loghost);
-	colon = strrchr(*realhost, ':');
-	if (colon) {
-	    /*
-	     * FIXME: if we ever update this aspect of ssh.c for
-	     * IPv6 literal management, this should change in line
-	     * with it.
-	     */
-	    *colon++ = '\0';
-	}
+        sfree(*realhost);
+        *realhost = dupstr(cfg->loghost);
+        colon = strrchr(*realhost, ':');
+        if (colon) {
+            /*
+             * FIXME: if we ever update this aspect of ssh.c for
+             * IPv6 literal management, this should change in line
+             * with it.
+             */
+            *colon++ = '\0';
+        }
     }
 
     /*
@@ -252,15 +237,8 @@ static void rlogin_free(void *handle)
     if (rlogin->prompt)
         free_prompts(rlogin->prompt);
     if (rlogin->s)
-	sk_close(rlogin->s);
+        sk_close(rlogin->s);
     sfree(rlogin);
-}
-
-/*
- * Stub routine (we don't have any need to reconfigure this backend).
- */
-static void rlogin_reconfig(void *handle, Config *cfg)
-{
 }
 
 /*
@@ -271,7 +249,7 @@ static int rlogin_send(void *handle, char *buf, int len)
     Rlogin rlogin = (Rlogin) handle;
 
     if (rlogin->s == NULL)
-	return 0;
+        return 0;
 
     if (rlogin->prompt) {
         /*
@@ -293,15 +271,6 @@ static int rlogin_send(void *handle, char *buf, int len)
 }
 
 /*
- * Called to query the current socket sendability status.
- */
-static int rlogin_sendbuffer(void *handle)
-{
-    Rlogin rlogin = (Rlogin) handle;
-    return rlogin->bufsize;
-}
-
-/*
  * Called to set the size of the window
  */
 static void rlogin_size(void *handle, int width, int height)
@@ -313,7 +282,7 @@ static void rlogin_size(void *handle, int width, int height)
     rlogin->term_height = height;
 
     if (rlogin->s == NULL || !rlogin->cansize)
-	return;
+        return;
 
     b[6] = rlogin->term_width >> 8;
     b[7] = rlogin->term_width & 0xFF;
@@ -321,76 +290,6 @@ static void rlogin_size(void *handle, int width, int height)
     b[5] = rlogin->term_height & 0xFF;
     rlogin->bufsize = sk_write(rlogin->s, b, 12);
     return;
-}
-
-/*
- * Send rlogin special codes.
- */
-static void rlogin_special(void *handle, Telnet_Special code)
-{
-    /* Do nothing! */
-    return;
-}
-
-/*
- * Return a list of the special codes that make sense in this
- * protocol.
- */
-static const struct telnet_special *rlogin_get_specials(void *handle)
-{
-    return NULL;
-}
-
-static int rlogin_connected(void *handle)
-{
-    Rlogin rlogin = (Rlogin) handle;
-    return rlogin->s != NULL;
-}
-
-static int rlogin_sendok(void *handle)
-{
-    /* Rlogin rlogin = (Rlogin) handle; */
-    return 1;
-}
-
-static void rlogin_unthrottle(void *handle, int backlog)
-{
-    Rlogin rlogin = (Rlogin) handle;
-    sk_set_frozen(rlogin->s, backlog > RLOGIN_MAX_BACKLOG);
-}
-
-static int rlogin_ldisc(void *handle, int option)
-{
-    /* Rlogin rlogin = (Rlogin) handle; */
-    return 0;
-}
-
-static void rlogin_provide_ldisc(void *handle, void *ldisc)
-{
-    /* This is a stub. */
-}
-
-static void rlogin_provide_logctx(void *handle, void *logctx)
-{
-    /* This is a stub. */
-}
-
-static int rlogin_exitcode(void *handle)
-{
-    Rlogin rlogin = (Rlogin) handle;
-    if (rlogin->s != NULL)
-        return -1;                     /* still connected */
-    else
-        /* If we ever implement RSH, we'll probably need to do this properly */
-        return 0;
-}
-
-/*
- * cfg_info for rlogin does nothing at all.
- */
-static int rlogin_cfg_info(void *handle)
-{
-    return 0;
 }
 
 Backend rlogin_backend = {
