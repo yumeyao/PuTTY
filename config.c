@@ -15,6 +15,15 @@
 #define HOST_BOX_TITLE "Host Name (or IP address)"
 #define PORT_BOX_TITLE "Port"
 
+/*
+ * TODO:
+ *   Putty needs to be re-designed using OO method badly.
+ *   With other parts handled correctly (trimming host, etc.), maybe only
+ *       change in label is needed.
+ *   However it seems adb/serial 'hosts' should have their own buffers for
+ *       storage of different data than network address  -  at least, for
+ *       the case protocal is changed and the host can be refilled.
+ */
 static void config_host_handler(union control *ctrl, void *dlg,
 				void *data, int event)
 {
@@ -33,6 +42,10 @@ static void config_host_handler(union control *ctrl, void *dlg,
 	     */
 	    dlg_label_change(ctrl, dlg, "Serial line");
 	    dlg_editbox_set(ctrl, dlg, cfg->serline);
+	} else if (cfg->protocol == PROT_ADB) {
+            /* huh? need n? A'n'droid */
+            dlg_label_change(ctrl, dlg, "Android DeviceID");
+            dlg_editbox_set(ctrl, dlg, cfg->host);
 	} else {
 	    dlg_label_change(ctrl, dlg, HOST_BOX_TITLE);
 	    dlg_editbox_set(ctrl, dlg, cfg->host);

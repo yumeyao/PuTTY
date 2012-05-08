@@ -576,7 +576,16 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	if ((!allow_launch || !cfg_launchable(&cfg)) && !do_config()) {
 	    cleanup_exit(0);
 	}
-
+/*
+ * TODO:
+ *   Putty needs to be re-designed using OO method badly.
+ *   This part can be treated as 'pre-init' callback of backends.
+ */
+/*
+ * TODO:
+ *   Similar routines must exist in unix/osx, deal with them later.
+ */
+/* Currently we appreciate the behavior here for PROT_ADB... */
 	/*
 	 * Trim leading whitespace off the hostname if it's there.
 	 */
@@ -585,6 +594,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	    memmove(cfg.host, cfg.host+space, 1+strlen(cfg.host)-space);
 	}
 
+/* Not others */
+if (cfg.protocol != PROT_ADB) {
 	/* See if host is of the form user@host */
 	if (cfg.host[0] != '\0') {
 	    char *atsign = strrchr(cfg.host, '@');
@@ -628,6 +639,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	    }
 	    cfg.host[p1] = '\0';
 	}
+}
     }
 
     if (!prev) {

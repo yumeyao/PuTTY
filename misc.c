@@ -638,10 +638,17 @@ void debug_memdump(void *buf, int len, int L)
  * Determine whether or not a Config structure represents a session
  * which can sensibly be launched right now.
  */
+/*
+ * TODO:
+ *   Putty needs to be re-designed using OO method badly.
+ *   This part can be treated as 'launchable' callback of backends.
+ */
 int cfg_launchable(const Config *cfg)
 {
     if (cfg->protocol == PROT_SERIAL)
 	return cfg->serline[0] != 0;
+    else if (cfg->protocol == PROT_ADB)
+        return TRUE;
     else
 	return cfg->host[0] != 0;
 }
